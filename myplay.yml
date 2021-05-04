@@ -1,0 +1,101 @@
+---
+- hosts: all
+
+  vars:
+    jdk_version: 1.8.0
+    tomcat_major_version: 9
+    tomcat_version: 9.0.45
+    nr_license_key: your-newrelic-license-key
+
+    nr_java_agent_config:
+      license_key: "{{nr_license_key}}"
+      app_name: Ansible Demo
+      labels:
+        deployment_tool: ansible
+        team: expert services
+    server_type: tomcat
+    server_root: "/opt/tomcat"
+    jvm_conf_file: "/opt/tomcat/bin/setenv.sh"
+    server_user: tomcat
+    server_group: tomcat
+    service_name: tomcat
+    restart_web_server: true
+
+  gather_facts: true
+  become: yes
+
+  roles:
+    - name: newrelic.newrelic-infra
+      vars:
+        nrinfragent_os_name: Amazon
+        nrinfragent_os_version: all
+        nrinfragent_config:
+          license_key: "{{nr_license_key}}"
+          custom_attributes:
+            environment: production
+            service: login service
+            team: alpha-team
+
+  tasks:
+  - name: Update repos
+    yum:
+      name: "*"
+      state: latest
+
+  - name: Install JDK
+    yum:
+      name: "java-{{jdk_version}}-openjdk"
+
+  - name: Add tomcat group
+    group:
+      name: tomcat
+
+  - name: Add tomcat user
+    user:
+      name: tomcat
+      group: tomcat
+      home: /user/share/tomcat
+      createhome: no
+
+  - name: Create /opt/tomcat directory
+    file:
+      path: /opt/tomcat
+      state: directory
+      mode: 0755
+
+  - name: Download & unarchive
+    unarchive:
+      src: "https://mirror.nodesdirect.com/apache/tomcat/tomcat-{{tomcat_major_version}}/v{{tomcat_version}}/bin/apache-tomcat-{{tomcat_version}}.tar.gz"
+      dest: /opt/tomcat
+      remote_src: yes
+      extra_opts: [--strip-components=1]
+
+  - name: Change ownership
+    file:
+      path: /opt/tomcat
+      owner: tomcat
+      group: tomcat
+      mode: "u+rwx,g+rx,o=rx"
+      recurse: yes
+      state: directory
+
+  - name: Copy Tomcat service from local to remote
+    copy:
+       src: tomcat.service
+       dest: /etc/systemd/system/
+       mode: 0755
+
+  - name: Download WAR to server
+    get_url:
+      url: "https://tomcat.apache.org/tomcat-{{tomcat_major_version}}.0-doc/appdev/sample/sample.war"
+      dest: /opt/tomcat/webapps/sample.war
+
+  - name: Start and enable Tomcat service
+    systemd:
+      name: tomcat
+      state: started
+      enabled: true
+      daemon_reload: true
+
+  - include_role:
+      name: newrelic.newrelic_java_agent
